@@ -1,25 +1,23 @@
-/*Using LVGL with Arduino requires some extra steps:
- *Be sure to read the docs here: https://docs.lvgl.io/master/integration/framework/arduino.html  */
-
 #include <lvgl.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_GC9A01A.h>
 
 // Pinos para o XIAO ESP32C6
-#define TFT_CS    2
 #define TFT_DC    1
-
-// Instância do display (sem SPI customizado)
-Adafruit_GC9A01A tft(TFT_CS, TFT_DC);
+#define TFT_CS    2
+#define TFT_RST   3
 
 /*Set to your screen resolution and rotation*/
 #define TFT_HOR_RES   240
 #define TFT_VER_RES   240
 #define TFT_ROTATION  LV_DISPLAY_ROTATION_0
 
-/*LVGL draw into this buffer, 1/10 screen size usually works well. The size is in bytes*/
-#define DRAW_BUF_SIZE (TFT_HOR_RES * TFT_VER_RES / 10 * (LV_COLOR_DEPTH / 8))
-uint32_t draw_buf[DRAW_BUF_SIZE / 4];
+#define DEBUG    1
+
+// Instância do display
+Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
+
+static lv_color_t draw_buf[TFT_HOR_RES * TFT_VER_RES / 10];
 
 #if LV_USE_LOG != 0
 void my_print( lv_log_level_t level, const char * buf )
@@ -30,25 +28,16 @@ void my_print( lv_log_level_t level, const char * buf )
 }
 #endif
 
-/* LVGL calls it when a rendered image needs to copied to the display*/
-void my_disp_flush( lv_display_t *disp, const lv_area_t *area, uint8_t * px_map)
+void gfx_disp_flush( lv_display_t *disp, const lv_area_t *area, uint8_t * px_map)
 {
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
 
-    // Inicia transação SPI uma vez só
     tft.startWrite();
-
-    // Define a janela de escrita no display
     tft.setAddrWindow(area->x1, area->y1, w, h);
-
-    // Escreve os pixels diretamente
-    // px_map já está no formato correto RGB565 (uint16_t)
     tft.writePixels((uint16_t*)px_map, w * h);
-
     tft.endWrite();
 
-    // Informa ao LVGL que o flush foi concluído
     lv_display_flush_ready(disp);
 }
 
@@ -64,20 +53,21 @@ void setup()
     Serial.println("Setup start");
 
     tft.begin();
-    tft.setRotation(0);
-    
-    tft.fillScreen(GC9A01A_BLACK);
-    tft.setTextColor(GC9A01A_WHITE);
-    tft.setTextSize(2);
-    tft.setCursor(20, 100);
-    tft.println("GC9A01A OK");
-    tft.drawCircle(120, 120, 60, GC9A01A_RED);
 
-    delay(1000);
+    #if DEBUG != 0
+        tft.setRotation(0);
+        tft.fillScreen(GC9A01A_BLACK);
+        tft.setTextColor(GC9A01A_WHITE);
+        tft.setTextSize(2);
+        tft.setCursor(20, 100);
+        tft.println("GC9A01A OK");
+        tft.drawCircle(120, 120, 60, GC9A01A_RED);
 
-    String LVGL_Arduino = "LVGL " + String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
+        delay(1000);
+    #endif
 
-    Serial.println(LVGL_Arduino);
+    /* initializes lvgl */
+    Serial.println("LVGL " + String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch());
 
     lv_init();
     lv_tick_set_cb(my_tick);
@@ -87,15 +77,19 @@ void setup()
         lv_log_register_print_cb(my_print);
     #endif
 
-    lv_display_t * disp;
-    /*Else create a display yourself*/
-    disp = lv_display_create(TFT_HOR_RES, TFT_VER_RES);
-    lv_display_set_flush_cb(disp, my_disp_flush);
+    /* setup lvgl to work with display driver */
+    lv_display_t * disp = lv_display_create(TFT_HOR_RES, TFT_VER_RES);
     lv_display_set_buffers(disp, draw_buf, NULL, sizeof(draw_buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_cb(disp, gfx_disp_flush);
+    lv_display_set_rotation(disp, TFT_ROTATION);
 
-    lv_obj_t *label = lv_label_create(lv_screen_active());
-    lv_label_set_text(label, "Hello Arduino, I'm LVGL!");
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+
+    #if DEBUG != 0
+        lv_obj_t *label = lv_label_create(lv_screen_active());
+        lv_label_set_text(label, "Hello Arduino, I'm LVGL!");
+        lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+        delay(1000);
+    #endif
 
     Serial.println( "Setup done" );
 }
