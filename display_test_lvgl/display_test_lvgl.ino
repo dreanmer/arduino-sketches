@@ -47,6 +47,118 @@ static uint32_t my_tick(void)
     return millis();
 }
 
+
+#include "time.h"  // Para funções de tempo
+
+// Labels para exibir o tempo
+lv_obj_t * label_time;
+lv_obj_t * label_date;
+lv_obj_t * label_seconds;
+
+// Timer para atualizar o relógio
+lv_timer_t * clock_timer;
+
+// Função para atualizar o relógio
+void update_clock_cb(lv_timer_t * timer) {
+    // Pega o tempo atual
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    
+    // Buffer para strings
+    static char time_str[16];
+    static char date_str[32];
+    static char sec_str[8];
+    
+    // Formatar hora:minuto
+    strftime(time_str, sizeof(time_str), "%H:%M", &timeinfo);
+    lv_label_set_text(label_time, time_str);
+    
+    // Formatar data
+    strftime(date_str, sizeof(date_str), "%d/%m/%Y", &timeinfo);
+    lv_label_set_text(label_date, date_str);
+    
+    // Segundos separados (para animação mais fluida)
+    strftime(sec_str, sizeof(sec_str), "%S", &timeinfo);
+    lv_label_set_text(label_seconds, sec_str);
+}
+
+void create_clock_ui() {
+    // Configurar fundo escuro
+    lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
+    
+    // === HORA PRINCIPAL (HH:MM) ===
+    label_time = lv_label_create(lv_screen_active());
+    lv_label_set_text(label_time, "00:00");
+    
+    // Estilo da hora principal
+    static lv_style_t style_time;
+    lv_style_init(&style_time);
+    lv_style_set_text_color(&style_time, lv_color_hex(0xFFFFFF));
+    lv_style_set_text_font(&style_time, &lv_font_montserrat_48);  // Fonte grande
+    lv_obj_add_style(label_time, &style_time, 0);
+    
+    // Centralizar hora
+    lv_obj_align(label_time, LV_ALIGN_CENTER, 0, -30);
+    
+    // === SEGUNDOS ===
+    label_seconds = lv_label_create(lv_screen_active());
+    lv_label_set_text(label_seconds, "00");
+    
+    // Estilo dos segundos
+    static lv_style_t style_seconds;
+    lv_style_init(&style_seconds);
+    lv_style_set_text_color(&style_seconds, lv_color_hex(0x00FF00));  // Verde
+    lv_style_set_text_font(&style_seconds, &lv_font_montserrat_22);
+    lv_obj_add_style(label_seconds, &style_seconds, 0);
+    
+    // Posicionar segundos ao lado da hora
+    lv_obj_align_to(label_seconds, label_time, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+    
+    // === DATA ===
+    label_date = lv_label_create(lv_screen_active());
+    lv_label_set_text(label_date, "01/01/2024");
+    
+    // Estilo da data
+    static lv_style_t style_date;
+    lv_style_init(&style_date);
+    lv_style_set_text_color(&style_date, lv_color_hex(0xAAAAAA));  // Cinza
+    lv_style_set_text_font(&style_date, &lv_font_montserrat_18);
+    lv_obj_add_style(label_date, &style_date, 0);
+    
+    // Posicionar data abaixo da hora
+    lv_obj_align_to(label_date, label_time, LV_ALIGN_OUT_BOTTOM_MID, 0, 20);
+    
+    // === CÍRCULO DECORATIVO ===
+    lv_obj_t * circle = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(circle, 200, 200);
+    lv_obj_set_style_radius(circle, 100, 0);
+    lv_obj_set_style_border_width(circle, 2, 0);
+    lv_obj_set_style_border_color(circle, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_opa(circle, LV_OPA_TRANSP, 0);  // Transparente
+    lv_obj_align(circle, LV_ALIGN_CENTER, 0, 0);
+    
+    // === TIMER PARA ATUALIZAÇÃO ===
+    clock_timer = lv_timer_create(update_clock_cb, 1000, NULL);  // Atualiza a cada 1s
+    
+    // Primeira atualização imediata
+    update_clock_cb(clock_timer);
+}
+
+// Configuração inicial do tempo (coloque no setup())
+void setup_time() {
+    // Configurar timezone (ajuste para sua região)
+    configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov");  // UTC-3 (Brasília)
+    
+    // Aguardar sincronização NTP (para ESP32 com WiFi)
+    Serial.println("Aguardando sincronização de tempo...");
+    while (time(nullptr) < 24 * 3600) {
+        delay(100);
+    }
+    Serial.println("Tempo sincronizado!");
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -90,6 +202,8 @@ void setup()
         lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
         delay(1000);
     #endif
+
+    create_clock_ui();
 
     Serial.println( "Setup done" );
 }
