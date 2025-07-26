@@ -39,11 +39,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "can_manager.h"
 #include "lawicel.h"
 
-//on the S3 we want the default pins to be different
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-MCP2517FD CAN1(10, 3);
-#endif
-
 byte i = 0;
 
 uint32_t lastFlushMicros = 0;
@@ -71,7 +66,7 @@ LAWICELHandler lawicel;
 
 SerialConsole console;
 
-CRGB leds[A5_NUM_LEDS]; //A5 has the largest # of LEDs so use that one even for A0 or EVTV
+CRGB leds[A5_NUM_LEDS]; // precisa ser definido para não dar erros nos imports
 
 CAN_COMMON *canBuses[NUM_BUSES];
 
@@ -93,21 +88,20 @@ void loadSettings()
     settings.enableBT = nvPrefs.getBool("enable-bt", false);
     settings.enableLawicel = nvPrefs.getBool("enableLawicel", true);
 
-    uint8_t defaultVal = (espChipRevision > 2) ? 0 : 1; //0 = A0, 1 = EVTV ESP32
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-    defaultVal = 3;
-#endif
+    uint8_t defaultVal = 0; //0 = A0, 1 = EVTV ESP32
+
     settings.systemType = nvPrefs.getUChar("systype", defaultVal);
 
     if (settings.systemType == 0)
     {
-        Logger::console("Running on Macchina A0");
+        Logger::console("Running on ESP32C6");
         canBuses[0] = &CAN0;
+        //canBuses[1] = &CAN1;
         SysSettings.LED_CANTX = 255;
         SysSettings.LED_CANRX = 255;
         SysSettings.LED_LOGGING = 255;
         SysSettings.LED_CONNECTION_STATUS = 0;
-        SysSettings.fancyLED = true;
+        SysSettings.fancyLED = false;
         SysSettings.logToggle = false;
         SysSettings.txToggle = true;
         SysSettings.rxToggle = true;
@@ -115,133 +109,23 @@ void loadSettings()
         SysSettings.lawicelMode = false;
         SysSettings.lawicellExtendedMode = false;
         SysSettings.lawicelTimestamping = false;
-        SysSettings.numBuses = 1; //Currently we support CAN0
+        SysSettings.numBuses = 1;
         SysSettings.isWifiActive = false;
         SysSettings.isWifiConnected = false;
-        strcpy(deviceName, MACC_NAME);
-        strcpy(otaHost, "macchina.cc");
-        strcpy(otaFilename, "/a0/files/a0ret.bin");
-        pinMode(13, OUTPUT);
-        digitalWrite(13, LOW);
+        strcpy(deviceName, "canbus");
         delay(100);
-        FastLED.addLeds<LED_TYPE, A0_LED_PIN, COLOR_ORDER>(leds, A0_NUM_LEDS).setCorrection( TypicalLEDStrip );
+        FastLED.addLeds<LED_TYPE, LED_BUILTIN, COLOR_ORDER>(leds, A0_NUM_LEDS).setCorrection( TypicalLEDStrip );
         FastLED.setBrightness(  BRIGHTNESS );
         leds[0] = CRGB::Red;
         FastLED.show();
-        pinMode(21, OUTPUT);
-        digitalWrite(21, LOW);
-        CAN0.setCANPins(GPIO_NUM_4, GPIO_NUM_5);
-    }
-
-    if (settings.systemType == 1)
-    {
-        Logger::console("Running on EVTV ESP32 Board");
-        canBuses[0] = &CAN0;
-        canBuses[1] = &CAN1;
-        SysSettings.LED_CANTX = 255;
-        SysSettings.LED_CANRX = 255;
-        SysSettings.LED_LOGGING = 255;
-        SysSettings.LED_CONNECTION_STATUS = 255;
-        SysSettings.fancyLED = false;
-        SysSettings.logToggle = false;
-        SysSettings.txToggle = true;
-        SysSettings.rxToggle = true;
-        SysSettings.lawicelAutoPoll = false;
-        SysSettings.lawicelMode = false;
-        SysSettings.lawicellExtendedMode = false;
-        SysSettings.lawicelTimestamping = false;
-        SysSettings.numBuses = 2;
-        SysSettings.isWifiActive = false;
-        SysSettings.isWifiConnected = false;
-        strcpy(deviceName, EVTV_NAME);
-        strcpy(otaHost, "media3.evtv.me");
-        strcpy(otaFilename, "/esp32ret.bin");
-    }
-
-    if (settings.systemType == 2)
-    {
-        Logger::console("Running on Macchina 5-CAN");
-        canBuses[0] = &CAN0; //SWCAN on this hardware - DLC pin 1
-        canBuses[1] = &CAN1; //DLC pins 1 and 9. Overlaps with SWCAN
-        canBuses[2] = new MCP2517FD(33, 39); //DLC pins 3/11
-        canBuses[3] = new MCP2517FD(25, 34); //DLC pins 6/14
-        canBuses[4] = new MCP2517FD(14, 13); //DLC pins 12/13
-
-        //reconfigure the two already defined CAN buses to use the actual pins for this board.
-        CAN0.setCANPins(GPIO_NUM_4, GPIO_NUM_5); //rx, tx - This is the SWCAN interface
-        CAN1.setINTPin(36);
-        CAN1.setCSPin(32);
-        SysSettings.LED_CANTX = 0;
-        SysSettings.LED_CANRX = 1;
-        SysSettings.LED_LOGGING = 2;
-        SysSettings.LED_CONNECTION_STATUS = 3;
-        SysSettings.fancyLED = true;
-        SysSettings.logToggle = false;
-        SysSettings.txToggle = true;
-        SysSettings.rxToggle = true;
-        SysSettings.lawicelAutoPoll = false;
-        SysSettings.lawicelMode = false;
-        SysSettings.lawicellExtendedMode = false;
-        SysSettings.lawicelTimestamping = false;
-        SysSettings.numBuses = 5;
-        SysSettings.isWifiActive = false;
-        SysSettings.isWifiConnected = false;
-
-
-        FastLED.addLeds<LED_TYPE, A5_LED_PIN, COLOR_ORDER>(leds, A5_NUM_LEDS).setCorrection( TypicalLEDStrip );
-        FastLED.setBrightness(  BRIGHTNESS );
-        //With the board facing up and looking at the USB end the LEDs are 0 1 2 (USB) 3
-        //can test LEDs here for debugging but normally leave first three off and set connection to RED.
-        //leds[0] = CRGB::White;
-        //leds[1] = CRGB::Blue;
-        //leds[2] = CRGB::Green;
-        leds[3] = CRGB::Red;
-        FastLED.show();
-
-        strcpy(deviceName, MACC_NAME);
-        strcpy(otaHost, "macchina.cc");
-        strcpy(otaFilename, "/a0/files/a0ret.bin");
-        //Single wire interface
-        pinMode(SW_EN, OUTPUT);
-        pinMode(SW_MODE0, OUTPUT);
-        pinMode(SW_MODE1, OUTPUT);
-        digitalWrite(SW_EN, LOW);      //MUST be LOW to use CAN1 channel 
-        //HH = Normal Mode
-        digitalWrite(SW_MODE0, HIGH);
-        digitalWrite(SW_MODE1, HIGH);
-    }
-
-    if (settings.systemType == 3)
-    {
-        Logger::console("Running on EVTV ESP32-S3 Board");
-        canBuses[0] = &CAN0;
-        canBuses[1] = &CAN1;
-        //CAN1.setINTPin(3);
-        //CAN1.setCSPin(10);
-        SysSettings.LED_CANTX = 255;//18;
-        SysSettings.LED_CANRX = 255;//18;
-        SysSettings.LED_LOGGING = 255;
-        SysSettings.LED_CONNECTION_STATUS = 255;
-        SysSettings.fancyLED = false;
-        SysSettings.logToggle = false;
-        SysSettings.txToggle = true;
-        SysSettings.rxToggle = true;
-        SysSettings.lawicelAutoPoll = false;
-        SysSettings.lawicelMode = false;
-        SysSettings.lawicellExtendedMode = false;
-        SysSettings.lawicelTimestamping = false;
-        SysSettings.numBuses = 2;
-        SysSettings.isWifiActive = false;
-        SysSettings.isWifiConnected = false;
-        strcpy(deviceName, EVTV_NAME);
-        strcpy(otaHost, "media3.evtv.me");
-        strcpy(otaFilename, "/esp32s3ret.bin");
+        CAN0.setCANPins(GPIO_NUM_2, GPIO_NUM_3);
+        // CAN1.setCANPins(GPIO_NUM_2, GPIO_NUM_3);
     }
 
     if (nvPrefs.getString("SSID", settings.SSID, 32) == 0)
     {
         strcpy(settings.SSID, deviceName);
-        strcat(settings.SSID, "SSID");
+        // strcat(settings.SSID, "SSID");
     }
 
     if (nvPrefs.getString("wpa2Key", settings.WPA2Key, 64) == 0)
@@ -250,24 +134,46 @@ void loadSettings()
     }
     if (nvPrefs.getString("btname", settings.btName, 32) == 0)
     {
-        strcpy(settings.btName, "ELM327-");
-        strcat(settings.btName, deviceName);
+        strcpy(settings.btName, deviceName);
+        // strcat(settings.btName, deviceName);
     }
-
+    
     char buff[80];
-    for (int i = 0; i < SysSettings.numBuses; i++)
-    {
-        sprintf(buff, "can%ispeed", i);
-        settings.canSettings[i].nomSpeed = nvPrefs.getUInt(buff, 500000);
-        sprintf(buff, "can%i_en", i);
-        settings.canSettings[i].enabled = nvPrefs.getBool(buff, (i < 2)?true:false);
-        sprintf(buff, "can%i-listenonly", i);
-        settings.canSettings[i].listenOnly = nvPrefs.getBool(buff, false);
-        sprintf(buff, "can%i-fdspeed", i);
-        settings.canSettings[i].fdSpeed = nvPrefs.getUInt(buff, 5000000);
-        sprintf(buff, "can%i-fdmode", i);
-        settings.canSettings[i].fdMode = nvPrefs.getBool(buff, false);
-    }
+    // for (int i = 0; i < SysSettings.numBuses; i++)
+    // {
+    //     sprintf(buff, "can%ispeed", i);
+    //     settings.canSettings[i].nomSpeed = nvPrefs.getUInt(buff, 500000);
+    //     sprintf(buff, "can%i_en", i);
+    //     settings.canSettings[i].enabled = nvPrefs.getBool(buff, (i < 2)?true:false);
+    //     sprintf(buff, "can%i-listenonly", i);
+    //     settings.canSettings[i].listenOnly = nvPrefs.getBool(buff, false);
+    //     sprintf(buff, "can%i-fdspeed", i);
+    //     settings.canSettings[i].fdSpeed = nvPrefs.getUInt(buff, 5000000);
+    //     sprintf(buff, "can%i-fdmode", i);
+    //     settings.canSettings[i].fdMode = nvPrefs.getBool(buff, false);
+    // }
+
+    sprintf(buff, "can%ispeed", 0);
+    settings.canSettings[0].nomSpeed = nvPrefs.getUInt(buff, 50000);
+    sprintf(buff, "can%i_en", 0);
+    settings.canSettings[0].enabled = nvPrefs.getBool(buff, true);
+    sprintf(buff, "can%i-listenonly", 0);
+    settings.canSettings[0].listenOnly = nvPrefs.getBool(buff, false);
+    sprintf(buff, "can%i-fdspeed", 0);
+    settings.canSettings[0].fdSpeed = nvPrefs.getUInt(buff, 5000000);
+    sprintf(buff, "can%i-fdmode", 0);
+    settings.canSettings[0].fdMode = nvPrefs.getBool(buff, false);
+
+    // sprintf(buff, "can%ispeed", 1);
+    // settings.canSettings[1].nomSpeed = nvPrefs.getUInt(buff, 50000);
+    // sprintf(buff, "can%i_en", 1);
+    // settings.canSettings[1].enabled = nvPrefs.getBool(buff, true);
+    // sprintf(buff, "can%i-listenonly", 1);
+    // settings.canSettings[1].listenOnly = nvPrefs.getBool(buff, false);
+    // sprintf(buff, "can%i-fdspeed", 1);
+    // settings.canSettings[1].fdSpeed = nvPrefs.getUInt(buff, 5000000);
+    // sprintf(buff, "can%i-fdmode", 1);
+    // settings.canSettings[1].fdMode = nvPrefs.getBool(buff, false);
 
     nvPrefs.end();
 
@@ -278,13 +184,6 @@ void loadSettings()
 
 void setup()
 {
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-    //for the ESP32S3 it will block if nothing is connected to USB and that can slow down the program
-    //if nothing is connected. But, you can't set 0 or writing rapidly to USB will lose data. It needs
-    //some sort of timeout but I'm not sure exactly how much is needed or if there is a better way
-    //to deal with this issue.
-    Serial.setTxTimeoutMs(2);
-#endif
     Serial.begin(1000000); //for production
     //Serial.begin(115200); //for testing
     //delay(2000); //just for testing. Don't use in production
@@ -307,11 +206,11 @@ void setup()
     {
         Serial.println("Starting bluetooth");
         elmEmulator.setup();
-        if (SysSettings.fancyLED && (settings.wifiMode == 0) )
-        {
-            leds[0] = CRGB::Green;
-            FastLED.show();
-        }
+        // if (SysSettings.fancyLED && (settings.wifiMode == 0) )
+        // {
+        //     leds[0] = CRGB::Green;
+        //     FastLED.show();
+        // }
     }
     
     /*else*/ wifiManager.setup();
